@@ -136,7 +136,6 @@ fn AppSidebar() -> Element {
         NativeRouter {
             rect {
                 width: "100%",
-                height: "32px",
                 direction: "horizontal",
                 background: "#3C3F41",
 
