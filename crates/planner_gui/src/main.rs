@@ -4,7 +4,6 @@
 )]
 
 use std::str::FromStr;
-use std::sync::{Mutex, MutexGuard};
 use freya::prelude::*;
 use dioxus_logger::tracing::{debug, Level};
 use planner_app::ViewModel;
@@ -23,75 +22,37 @@ use dioxus_router::prelude::{Outlet, Routable, Router};
 
 mod app_core;
 
-static LANGUAGES: Mutex<Option<Vec<LanguagePair>>> = Mutex::new(None);
-static SELECTED_LANGUAGE: Mutex<Option<LanguagePair>> = Mutex::new(None);
+static LANGUAGES: &[LanguagePair] = &[
+    LanguagePair { code: "en-US", name: "English (United-States)" },
+    LanguagePair { code: "es-ES", name: "Español (España)" },
+];
 
-fn initialise_languages() {
+#[derive(Clone)]
+struct LanguagePair {
+    code: &'static str,
+    name: &'static str,
+}
 
-    let languages: Vec<LanguagePair> = vec![
-        LanguagePair { code: "en-US".to_string(), name: "English (United-States)".to_string() },
-        LanguagePair { code: "es-ES".to_string(), name: "Español (España)".to_string() },
-    ];
-    
-    let first_language: &LanguagePair = languages.first().unwrap();
+fn use_init_languages() {    
+    let first_language: &LanguagePair = LANGUAGES.first().unwrap();
 
     let first_language_identifier: LanguageIdentifier = first_language.code.parse().unwrap();
     
     use_init_i18n(first_language_identifier.clone(), first_language_identifier, || {
-        languages.iter().map(|LanguagePair { code, name: _name }|{
-            match code.as_str() {
+        LANGUAGES.iter().map(|LanguagePair { code, name: _name }|{
+            match *code {
                 "en-US" => Language::from_str(EN_US).unwrap(),
                 "es-ES" => Language::from_str(ES_ES).unwrap(),
                 _ => panic!()
             }
         }).collect()
     });
-
-    let mut guard = SELECTED_LANGUAGE.lock().unwrap();
-    (*guard).replace(first_language.clone());
-
-    let mut guard = LANGUAGES.lock().unwrap();
-    (*guard).replace(languages);
     
-}
-
-fn change_language(language_pair: &LanguagePair) {
-
-    let mut i18n = use_i18();
-
-    let mut guard = SELECTED_LANGUAGE.lock().unwrap();
-    (*guard).replace(language_pair.clone());
-
-    i18n.set_language(language_pair.code.parse().unwrap());
-}
-
-fn languages() -> MutexGuard<'static, Option<Vec<LanguagePair>>> {
-    
-    let guard = LANGUAGES.lock().expect("not locked");
-    
-    guard
-}
-
-#[derive(Clone)]
-struct LanguagePair {
-    code: String,
-    name: String,
-}
-
-// FIXME avoid cloning, return some reference instead, but how!
-fn selected_language() -> LanguagePair {
-
-    let guard = SELECTED_LANGUAGE.lock().expect("not locked");
-
-    guard.as_ref().unwrap().clone()
 }
 
 fn app() -> Element {
 
-    initialise_languages();
-
-    change_language(&selected_language());
-
+    use_init_languages();
 
     rsx!(
         rect {
@@ -144,23 +105,11 @@ fn PageNotFound() -> Element {
         }
     )
 }
-fn use_change_language() -> Signal<Box<(impl FnMut(LanguagePair) + 'static)>> {
-    let mut i18n = use_i18();
-
-    let closure = move |language_pair: LanguagePair| {
-        let mut guard = SELECTED_LANGUAGE.lock().unwrap();
-
-        i18n.set_language(language_pair.code.parse().unwrap());
-        (*guard).replace(language_pair);
-    };
-    
-    use_signal(move || Box::new(closure))
-}
 
 #[allow(non_snake_case)]
 fn AppSidebar() -> Element {
 
-    let i18n = use_i18();
+    let mut i18n = use_i18();
     
     let view = use_signal(ViewModel::default);
 
@@ -178,23 +127,10 @@ fn AppSidebar() -> Element {
         debug!("save clicked");
         app_core.send(planner_app::Event::Save );
     };
-    
-    let current_language_signal = use_signal(|| {
-        let selected_language_binding = selected_language();
-        let selected_language = selected_language_binding;
 
-        selected_language
-    });
-    
-    let languages_hooked = use_hook(|| {
-        let language_set_binding = languages();
-        let language_set = language_set_binding.as_ref().unwrap();
-
-        // FIXME avoid cloning
-        language_set.clone()
-    });
-
-    let mut change_lang = use_change_language();
+    let selected_language = LANGUAGES.iter().find(|lang| {
+        *i18n.selected_language.read() == lang.code
+    }).unwrap();
 
     rsx!(
         NativeRouter {
@@ -231,13 +167,13 @@ fn AppSidebar() -> Element {
                     rect {
                        direction: "vertical",
                         Dropdown {
-                            value: current_language_signal.read().name.clone(),
-                            for language in languages_hooked {
+                            value: selected_language.name,
+                            for language in LANGUAGES {
                                 DropdownItem {
-                                    value: language.code.clone(),
+                                    value: language.code,
                                     onclick: {
                                         to_owned![language];
-                                        move |_| change_lang.write()(language.clone())
+                                        move |_| i18n.set_language(LanguageIdentifier::from_str(language.code).unwrap())
                                     },
                                     label { "{language.name}" }
                                 }
